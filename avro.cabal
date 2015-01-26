@@ -1,0 +1,24 @@
+name:           avro
+version:        0.0.1
+cabal-version:  >= 1.2
+build-type:     Simple
+license:        BSD3
+license-file:   LICENSE
+copyright:      2015 Jeff Douglas
+author:         Jeff Douglas
+maintainer:     inbuninbu@gmail.com
+stability:      alpha
+homepage:       https://github.com/tendril/avro
+bug-reports:    https://github.com/tendril/avro/issues
+synopsis:       Avro for Haskell
+description:    `avro` is an implementation of the <https://avro.apache.org/ Avro> data serialization and RPC specification.
+
+library
+  hs-source-dirs:  src
+  build-depends:   base >= 4
+                 , bytestring >= 0.10
+                 , text >= 1.2.0
+                 , cereal >= 0.4.1
+  ghc-options:     -O2 -Wall
+  exposed-modules: Data.Avro
+                 , Data.Avro.Core 
