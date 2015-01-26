@@ -1,5 +1,6 @@
 module Data.Avro.Core
-( putAvro, putInt, putLong, putArray, putMap )
+( WritePolicy(..), SimpleWritePolicy(..)
+, putAvro, writeAvro, putInt, putLong, defaultWritePolicy )
 where
 
 import Data.Avro
@@ -8,16 +9,26 @@ import Data.Bits
 import Data.Int
 import Data.Word
 import Data.Serialize
+import Control.Monad (foldM)
 import Data.List (unfoldr)
 import Data.Text.Lazy (Text)
 import Data.Text.Lazy.Encoding (encodeUtf8)
+import Data.ByteString.Lazy (ByteString)
 import qualified Data.Text.Lazy as T
 import qualified Data.ByteString.Lazy as B
 
--- | Serialize an Avro value.
---   __TO DO__: Enable policy-based chunking for arrays and map.
+-- | Serialize an Avro Value. Uses @defaultWritePolicy@.
 putAvro :: Avro -> Put
-putAvro avro = case avro of
+putAvro = writeAvro defaultWritePolicy
+
+-- | Serializes an Avro value with a @WritePolicy@.
+writeAvro :: WritePolicy a => a -> Avro -> Put
+writeAvro wp = writeAvro_ wp []
+
+-- Writes an avro with WritePolicy and path state threaded.
+--   __TO DO__: Monadize this to thread path state and policy
+writeAvro_ :: WritePolicy a => a -> AvroPath -> Avro -> Put
+writeAvro_ wp path avro = case avro of
   NullV -> return ()
   BoolV value -> putWord8 $ fromIntegral $ fromEnum value
   IntV value -> putInt value
@@ -26,12 +37,12 @@ putAvro avro = case avro of
   DoubleV value -> putFloat64le value
   BytesV value -> putLong (B.length value) >> putLazyByteString value
   StringV value -> putLong (T.length value) >> putLazyByteString (encodeUtf8 value)
-  UnionV index value -> putLong index >> putAvro value
-  ArrayV values -> putArray 10  values   
-  MapV values -> putMap 10 values
+  UnionV n index value -> putLong index >> writeAvro_ wp (AvroUnion n:path) value
+  ArrayV values -> writeArray wp path values
+  MapV values -> writeMap wp path values
   FixedV _ value -> putLazyByteString value
   EnumV _ value -> putInt value
-  RecordV _ fields -> mapM_ (putAvro . snd) fields
+  RecordV _ fields -> mapM_ (writeAvro_ wp path . snd) fields
 
 -- | Put an Avro @int@ value.
 putInt :: Int32 -> Put
@@ -63,21 +74,43 @@ zigzagEncode32 x = shiftL x 1 `xor` shiftR x 31
 zigzagEncode64 :: Int64 -> Int64
 zigzagEncode64 x = shiftL x 1 `xor` shiftR x 63
 
--- | Serializes an Avro array. Presently, this takes an argument for the number of items to write in each block.
---   __TODO__: Allow policy-based chunking.
-putArray :: Int64 -> [Avro] -> Put
-putArray n avros = do
-  let (block, remainder) = splitAt (fromIntegral n) avros
-  putLong $ fromIntegral $ length block
-  mapM_ putAvro block
-  if null remainder then putLong 0 else putArray n remainder
+-- | A @WritePolicy@ allows you to specify how block sizes are determined when writing Avro arrays and maps.
+--   The @AvroPath@ argument allows implementations to apply policies on, for example, a per-field basis.
+--   Since we don't know the full length of lists or maps ahead-of-time without evaluating the entire list,
+--   and the block must be prepended with the number of items in the chunk, the interaction of the @WritePolicy@,
+--   data, and block size on memory should be taken into consideration.
+--   Implementations of this class must be careful to adhere to the block encoding in the Avro Specification.
+class WritePolicy a where
+  writeArray :: a -> AvroPath -> [Avro] -> Put
+  writeMap :: a -> AvroPath -> [(Text,Avro)] -> Put
 
--- | Serializes an Avro map. Like an array, this takes an argument for the number of items to write in each block.
---   __TODO__: Allow policy-based chunking.
-putMap :: Int64 -> [(Text,Avro)] -> Put
-putMap n avros = do
-  let (block, remainder) = splitAt (fromIntegral n) avros
-  putLong $ fromIntegral $ length block
-  mapM_ putKVP block
-  if null remainder then putLong 0 else putMap n remainder
-  where putKVP (k,v) = putAvro (StringV k) >> putAvro v
+-- | @SimpleWritePolicy@ sets a simple block-size rule for either a number of items or a number of bytes per block of Avro array and map data.
+--   @WritePolicyItems@ allows you to set the block size in number of items; @WritePolicyBytes@ allows you to set the block size in bytes.
+--   @WritePolicyItems@ does not include the optional block byte-length information.
+data SimpleWritePolicy
+  = WritePolicyItems Int64
+  | WritePolicyBytes Int64
+
+instance WritePolicy SimpleWritePolicy where
+  writeArray wp path avros = case wp of
+    WritePolicyItems n -> putSimple True n $ map (runPutLazy . writeAvro_ wp path) avros
+    WritePolicyBytes bytes -> putSimple False bytes $ map (runPutLazy . writeAvro_ wp path) avros
+  writeMap wp path avros = case wp of
+    WritePolicyItems n -> putSimple True n $ map (runPutLazy . putKVP) avros
+    WritePolicyBytes bytes -> putSimple False bytes $ map (runPutLazy . putKVP) avros
+    where putKVP (k,v) = writeAvro_ wp path (StringV k) >> writeAvro_ wp path v
+
+-- fold over a list of serialized avros
+putSimple :: Bool -> Int64 -> [ByteString] -> Put
+putSimple _ _ [] = putInt 0
+putSimple items size avros = do
+    (nitems, nbytes, b) <- foldM f (0, 0, "") avros
+    if items then putLong nitems else putLong (-nitems) >> putLong nbytes
+    putLazyByteString b >> putLong 0
+    where
+      f (ni,nb,b) bs = if (if items then ni < size else nb < size)
+        then return (ni+1, nb+B.length bs, B.append b bs)
+        else putLong (-ni) >> putLong nb >> putLazyByteString b >> return (1, B.length bs, bs)
+
+-- | A simple default write policy for convenience -- @WritePolicyItems 100@
+defaultWritePolicy = WritePolicyItems 100

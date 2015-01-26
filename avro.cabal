@@ -21,4 +21,5 @@ library
                  , cereal >= 0.4.1
   ghc-options:     -O2 -Wall
   exposed-modules: Data.Avro
-                 , Data.Avro.Core 
+                 , Data.Avro.Core
+  extensions:      OverloadedStrings

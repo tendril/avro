@@ -1,5 +1,5 @@
 module Data.Avro
-( Schema(..), Field(..), Order(..), Avro(..), BlockLength(..) )
+( Schema(..), Field(..), Order(..), Avro(..), BlockLength(..), AvroPath, AvroPathElement(..) )
 where
 
 import Data.Text.Lazy (Text)
@@ -58,7 +58,8 @@ data Avro
   | BytesV  { bytesv  :: ByteString }
   | StringV { stringv :: Text       }
   | UnionV
-  { uIdx :: Int64
+  { uName :: Text
+  , uIdx :: Int64
   , uVal :: Avro
   }
   | ArrayV     { arrayv  :: [Avro]         }
@@ -79,3 +80,14 @@ data Avro
 -- | Array and Map Values are encoded as a sequence of blocks, each of which declares its number of items,
 --   and optionally the number of bytes. If the number of bytes is declared, this allows for more efficient skipping of data.
 data BlockLength = BlockLength Int64 (Maybe Int64)
+
+-- | An @AvroPath@ represents a unique path into Avro data. This allows the referencing of specific data within an Avro dataset.
+--   This allows advanced techniques like specifying read (skip) and write (block size) policies on arbitrary criteria.
+type AvroPath = [AvroPathElement]
+
+-- | An AvroPathElement is an individual branch in a complex Avro value.
+data AvroPathElement
+  = AvroField Text        -- field name of a Record
+  | AvroMapKey Text       -- map key in a map
+  | AvroArrayIndex Int64  -- index of an array
+  | AvroUnion Text        -- fully-qualified name for a type in a union
