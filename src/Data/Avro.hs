@@ -58,8 +58,7 @@ data Avro
   | BytesV  { bytesv  :: ByteString }
   | StringV { stringv :: Text       }
   | UnionV
-  { uName :: Text
-  , uIdx :: Int64
+  { uIdx :: Int64
   , uVal :: Avro
   }
   | ArrayV     { arrayv  :: [Avro]         }
@@ -90,4 +89,5 @@ data AvroPathElement
   = AvroField Text        -- field name of a Record
   | AvroMapKey Text       -- map key in a map
   | AvroArrayIndex Int64  -- index of an array
-  | AvroUnion Text        -- fully-qualified name for a type in a union
+  | AvroUnion Int64        -- fully-qualified name for a type in a union
+  deriving Eq
