@@ -1,6 +1,6 @@
 module Data.Avro.Core
-( WritePolicy(..), SimpleWritePolicy(..)
-, putAvro, writeAvro, putInt, putLong, defaultWritePolicy )
+-- ( WritePolicy(..), SimpleWritePolicy(..)
+-- , putAvro, writeAvro, putInt, putLong, getInt, getLong, defaultWritePolicy , getAvro, getObjectContainer)
 where
 
 import Data.Avro
@@ -11,7 +11,7 @@ import Data.Word
 import Data.Serialize
 import Data.List (isSuffixOf, unfoldr)
 import Control.Monad.State (StateT(..),lift,gets,modify,evalStateT)
-import Control.Monad (foldM,replicateM,replicateM_)
+import Control.Monad (foldM,replicateM,replicateM_,mzero)
 import Control.Applicative
 import Data.Maybe (catMaybes)
 import Data.Map (Map)
@@ -21,6 +21,8 @@ import Data.Text.Lazy.Encoding (encodeUtf8,decodeUtf8)
 import Data.ByteString.Lazy (ByteString)
 import qualified Data.Text.Lazy as T
 import qualified Data.ByteString.Lazy as B
+import qualified Data.Aeson as JSON
+import Codec.Compression.Zlib.Raw as Deflate
 
 -- | Serialize an Avro Value. Uses @defaultWritePolicy@.
 putAvro :: Avro -> Put
@@ -210,9 +212,9 @@ readMap rp path schema = do
       else lift getLong >> (++) <$> catMaybes <$> replicateM len getKVP <*> readMap rp path schema
   where getKVP = do
           k<-stringv <$> readAvro_ rp path STRING
-          if readskip rp ((AvroMapKey k):path)
-            then readAvro_ rp ((AvroMapKey k):path) schema >> return Nothing
-            else Just <$> (,) k <$> readAvro_ rp ((AvroMapKey k):path) schema
+          if readskip rp (AvroMapKey k:path)
+            then readAvro_ rp (AvroMapKey k:path) schema >> return Nothing
+            else Just <$> (,) k <$> readAvro_ rp (AvroMapKey k:path) schema
 
 -- | ReadAll skips no data
 data ReadAll = ReadAll
@@ -248,3 +250,48 @@ getVLE = do
   if testBit byte 7
     then (byte:) <$> getVLE
     else return [byte]
+
+getObjectContainer :: Get Container
+getObjectContainer = do
+  magic <- label "magic" $ getBytes 4
+  if magic == "Obj\SOH" then do
+      metadata <- mapv <$> label "metadata map" (getAvro $ MAP BYTES)
+      case lookup "avro.schema" metadata of
+        Nothing -> label "no schema in map" mzero
+        Just (BytesV json_schema) -> case JSON.decode json_schema :: Maybe Schema of
+          Nothing -> label "failure to parse schema" mzero
+          Just schema -> do
+            sync <- label "sync" $ getLazyByteString 16
+            Container schema sync <$> label "file chunks" (getFileChunks schema sync (fcodec metadata))
+        _ -> label "unreachable" mzero -- should be unreachable
+    else label "invalid magic number" mzero
+  where
+    fcodec md = case lookup "avro.codec" md of
+      Nothing -> NullCodec
+      Just (BytesV codec) -> case codec of
+        "null" -> NullCodec
+        "deflate" -> Deflate
+        "snappy" -> Snappy
+        _ -> UnsupportedCodec
+
+getFileChunks schema sync codec = do
+  nobjects <- longv <$> getAvro LONG
+  nbytes <- longv <$> getAvro LONG
+  if nobjects == 0
+    then return []
+    else do
+      avros <- isolate (fromIntegral nbytes) $ case codec of
+        NullCodec -> label "NullCodec" $ replicateM (fromIntegral nobjects) $ getAvro schema
+        Deflate -> do
+          cblock <- Deflate.decompress <$> getLazyByteString nbytes
+          case runGetLazy (label "4" $ replicateM (fromIntegral nobjects) $ getAvro schema) cblock of
+            Left e -> label "failed to read encoded block" mzero
+            Right v -> return v
+        Snappy -> label "unsupported codec" mzero
+      getBytes 16
+      e <- isEmpty
+      if not e
+        then do
+        next <- getFileChunks schema sync codec
+        return $ avros++next
+        else return avros
