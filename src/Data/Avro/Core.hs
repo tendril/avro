@@ -295,3 +295,25 @@ getFileChunks schema sync codec = do
         next <- getFileChunks schema sync codec
         return $ avros++next
         else return avros
+
+ape :: Avro -> AvroPathElement -> Maybe Avro
+ape avro idx = do
+  case avro of
+    ArrayV avros -> case idx of
+      AvroArrayIndex i -> if length avros >= (fromIntegral i)
+        then Just $ avros!!fromIntegral i
+        else Nothing
+      _ -> Nothing
+    MapV vs -> case idx of
+      AvroMapKey t -> lookup t vs
+      _ -> Nothing
+    RecordV n fs -> case idx of
+      AvroField t -> lookup t fs
+      _ -> Nothing
+    UnionV i a -> case idx of
+      -- ensures that the correct record type is being matched against
+      AvroUnion' t -> if t == rName a
+        then Just a
+        else Nothing
+      _ -> Nothing
+    _ -> Nothing

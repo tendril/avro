@@ -98,7 +98,8 @@ data AvroPathElement
   = AvroField Text        -- field name of a Record
   | AvroMapKey Text       -- map key in a map
   | AvroArrayIndex Int64  -- index of an array
-  | AvroUnion Int64        -- fully-qualified name for a type in a union
+  | AvroUnion Int64
+  | AvroUnion' Text       -- for filtering on homonymous field names when multiple fields are in a union
   deriving Eq
 
 instance FromJSON Schema where
