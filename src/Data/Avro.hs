@@ -191,7 +191,7 @@ instance ToJSON Avro where
 
 f n = maybe Nothing (\i -> Just $ n.=i)
 
-data Container = Container Schema ByteString [Avro]
+data Container = Container [(Text,Avro)] ByteString [Avro]
   deriving Show
 
 data Compression

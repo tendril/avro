@@ -262,7 +262,7 @@ getObjectContainer = do
           Nothing -> label "failure to parse schema" mzero
           Just schema -> do
             sync <- label "sync" $ getLazyByteString 16
-            Container schema sync <$> label "file chunks" (getFileChunks schema sync (fcodec metadata))
+            Container metadata sync <$> label "file chunks" (getFileChunks schema sync (fcodec metadata))
         _ -> label "unreachable" mzero -- should be unreachable
     else label "invalid magic number" mzero
   where
@@ -273,6 +273,10 @@ getObjectContainer = do
         "deflate" -> Deflate
         "snappy" -> Snappy
         _ -> UnsupportedCodec
+
+putObjectContainer :: Container -> Put
+putObjectContainer (Container metadata sync avros) = do
+  putByteString "Obj\SOH" >> putAvro (MapV [])
 
 getFileChunks schema sync codec = do
   nobjects <- longv <$> getAvro LONG
