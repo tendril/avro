@@ -158,7 +158,7 @@ instance ToJSON Schema where
     -- __TO DO__: Workaround for fromIntegral?
     FIXED n s ns al -> object $ catMaybes [Just $ "type" .= String "fixed", Just $ "size" .= Number (fromRational $ fromIntegral s), f "namespace" ns, f "aliases" al]
     ENUM n s ns al doc -> object $ catMaybes [Just $ "type" .= String "enum", Just $ "symbols" .= s, f "namespace" ns, f "aliases" al, f "doc" doc]
-    RECORD n fs ns al doc -> object $ catMaybes [Just $ "type" .= String "record", Just $ "fields" .= fs, f "namespace" ns, f "aliases" al, f "doc" doc]
+    RECORD n fs ns al doc -> object $ catMaybes [Just $ "type" .= String "record", Just $ "name" .= n , Just $ "fields" .= fs, f "namespace" ns, f "aliases" al, f "doc" doc]
 
 instance ToJSON Field where
   toJSON (Field n schema al doc def ord) = object $ catMaybes [Just $ "name".=n, Just $ "type" .= schema, f "doc" doc, f "doc" doc, f "order" ord] -- f "default" def requires ToJSON Avro

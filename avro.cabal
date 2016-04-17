@@ -25,6 +25,7 @@ library
                  , scientific >= 0.3.3.8
                  , vector >= 0.10.9.1
                  , zlib >= 0.5.4.1
+                 , unix >= 2.7.0.1
                  , pipes
                  , pipes-network
                  , network
